@@ -1,17 +1,18 @@
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 import io
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
+import os
 
 app = FastAPI()
 
 # Function to convert the processed image to an in-memory file
-def image_to_bytes(image):
-    is_success, buffer = cv2.imencode(".png", image)
-    io_buf = io.BytesIO(buffer)
-    return io_buf
+def image_to_file(image, filename):
+    # Save image to a temporary file
+    path = f"/tmp/{filename}.png"
+    cv2.imwrite(path, image)
+    return path
 
 @app.post("/process_image/")
 async def process_image(file: UploadFile = File(...)):
@@ -29,14 +30,17 @@ async def process_image(file: UploadFile = File(...)):
     # Apply Canny Edge Detection
     canny = cv2.Canny(img, 150, 175)
 
-    # Prepare the results (as PNG images)
-    gray_image = image_to_bytes(gray)
-    blur_image = image_to_bytes(blur)
-    canny_image = image_to_bytes(canny)
+    # Save processed images to temporary files
+    gray_image_path = image_to_file(gray, "gray_image")
+    blur_image_path = image_to_file(blur, "blur_image")
+    canny_image_path = image_to_file(canny, "canny_image")
 
-    # Return the processed images as a streaming response
+    # Return the processed images as file responses
     return {
-        "gray_image": StreamingResponse(gray_image, media_type="image/png"),
-        "blur_image": StreamingResponse(blur_image, media_type="image/png"),
-        "canny_image": StreamingResponse(canny_image, media_type="image/png"),
+        "gray_image": FileResponse(gray_image_path, media_type="image/png", filename="gray_image.png"),
+        "blur_image": FileResponse(blur_image_path, media_type="image/png", filename="blur_image.png"),
+        "canny_image": FileResponse(canny_image_path, media_type="image/png", filename="canny_image.png"),
     }
+
+# Run the application with Uvicorn:
+# uvicorn filename:app --reload
