@@ -1,51 +1,30 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, UploadFile, File
 import cv2
 import numpy as np
-import tempfile
-import shutil
-import os
+from fastapi.responses import StreamingResponse
+import io
 
 app = FastAPI()
 
-# Function to convert the processed image to an in-memory temporary file
-def image_to_file(image, filename):
-    # Create a temporary file to store the image
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-    cv2.imwrite(temp_file.name, image)
-    return temp_file.name
-
-@app.post("/process_image/")
+@app.post("/process-image/")
 async def process_image(file: UploadFile = File(...)):
-    # Read the image from the uploaded file
-    img = await file.read()
-    np_img = np.frombuffer(img, np.uint8)
-    img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-
+    # Read image from uploaded file
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+   
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+   
+    # Apply Gaussian blur
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+   
+    # Apply Canny edge detection
+    canny = cv2.Canny(blur, 10, 150)
+   
+    # Encode image to stream as response
+    _, encoded_img = cv2.imencode('.png', canny)
+    img_bytes = io.BytesIO(encoded_img.tobytes())
 
-    # Apply Gaussian Blur
-    blur = cv2.GaussianBlur(gray, (3, 3), cv2.BORDER_DEFAULT)
-
-    # Apply Canny Edge Detection
-    canny = cv2.Canny(img, 150, 175)
-
-    # Save processed images to temporary files
-    gray_image_path = image_to_file(gray, "gray_image")
-    blur_image_path = image_to_file(blur, "blur_image")
-    canny_image_path = image_to_file(canny, "canny_image")
-
-    # Return the processed images as file responses
-    try:
-        return {
-            "gray_image": FileResponse(gray_image_path, media_type="image/png", filename="gray_image.png"),
-            "blur_image": FileResponse(blur_image_path, media_type="image/png", filename="blur_image.png"),
-            "canny_image": FileResponse(canny_image_path, media_type="image/png", filename="canny_image.png"),
-        }
-    finally:
-        # Clean up the temporary files after sending the response
-        os.remove(gray_image_path)
-        os.remove(blur_image_path)
-        os.remove(canny_image_path)
+    return StreamingResponse(img_bytes, media_type="image/png")
 
